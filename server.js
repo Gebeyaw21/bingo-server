@@ -13,37 +13,38 @@ const io = new Server(server, {
 let calledNumbers = [];
 let intervalId = null;
 let gameActive = false;
-let verifiedTransactions = new Set(); // የገቡ እና የተረጋገጡ Transaction IDs
+let verifiedTransactions = new Set();
+let connectedPlayers = 0; // የተጫዋቾች ብዛት መቁጠሪያ
 
-// የቴሌብር SMS መልእክት ሲላክ ለማረጋገጥ የሚረዳ Endpoint
+// የቴሌብር SMS ማረጋገጫ
 app.post('/api/verify-sms', (req, res) => {
     const { message, userId } = req.body;
-
-    // ከቴሌብር መልእክት ውስጥ Transaction ID መፈለጊያ (Regex)
-    // ምሳሌ፡ Trans. ID: 1A2B3C4D5E ወይም Txn ID: 12345678
     const txnMatch = message.match(/(?:Transaction ID|Txn ID|Trans\. ID|ID)[:\s]*([A-Za-z0-9]+)/i);
 
     if (txnMatch && txnMatch[1]) {
         const txnId = txnMatch[1];
-
-        // ቀደም ሲል ጥቅም ላይ ያልዋለ መሆኑን ማረጋገጥ
         if (!verifiedTransactions.has(txnId)) {
             verifiedTransactions.add(txnId);
-            
-            // ለተጫዋቹ ካርቴላውን እንዲከፍትለት Socket መልእክት መላክ
             io.emit('paymentApproved', { userId, txnId });
             return res.json({ success: true, message: 'ክፍያው በትክክል ተረጋግጧል!' });
         } else {
             return res.json({ success: false, message: 'ይህ Transaction ID ቀደም ሲል ጥቅም ላይ ውሏል!' });
         }
     } else {
-        return res.json({ success: false, message: 'ትክክለኛ የቴሌብር መልእክት አልተገኘም። እባክዎ በትክክል ኮፒ አድርገው ይላኩ።' });
+        return res.json({ success: false, message: 'ትክክለኛ የቴሌብር መልእክት አልተገኘም።' });
     }
 });
 
-// Socket.io Game Logic
 io.on('connection', (socket) => {
+    connectedPlayers++;
+    // ለሁሉም ተጫዋቾች የአሁኑን የተጫዋቾች ብዛት ማሳወቅ
+    io.emit('playerCountUpdate', connectedPlayers);
     socket.emit('init', { calledNumbers, gameActive });
+
+    socket.on('disconnect', () => {
+        connectedPlayers = Math.max(0, connectedPlayers - 1);
+        io.emit('playerCountUpdate', connectedPlayers);
+    });
 
     socket.on('startGame', () => {
         if (!gameActive) {
