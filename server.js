@@ -13,6 +13,7 @@ let intervalId = null;
 let gameActive = false;
 let verifiedTxns = new Set();
 let connectedPlayers = 0;
+const ENTRY_FEE = 10; // የአንድ ካርቴላ ዋጋ (ብር)
 
 // የቴሌብር SMS ማረጋገጫ
 app.post('/api/verify-sms', (req, res) => {
@@ -32,11 +33,11 @@ app.post('/api/verify-sms', (req, res) => {
 
 io.on('connection', (socket) => {
     connectedPlayers++;
-    io.emit('playerCountUpdate', connectedPlayers);
+    updateGameStats();
 
     socket.on('disconnect', () => {
         connectedPlayers = Math.max(0, connectedPlayers - 1);
-        io.emit('playerCountUpdate', connectedPlayers);
+        updateGameStats();
     });
 
     socket.on('startGame', () => {
@@ -65,12 +66,24 @@ io.on('connection', (socket) => {
         if (isWinner) {
             clearInterval(intervalId);
             gameActive = false;
-            io.emit('winnerFound', { winner: socket.id.substring(0, 5) });
+            let prizePool = connectedPlayers * ENTRY_FEE * 0.8; // 80% ለአሸናፊው
+            io.emit('winnerFound', { 
+                winner: socket.id.substring(0, 5), 
+                prize: prizePool.toFixed(2) 
+            });
         } else {
             socket.emit('falseBingo', { message: 'ስህተት! ያልተጠራ ቁጥር መርጠዋል።' });
         }
     });
 });
+
+function updateGameStats() {
+    let prizePool = connectedPlayers * ENTRY_FEE * 0.8;
+    io.emit('statsUpdate', {
+        players: connectedPlayers,
+        prize: prizePool.toFixed(2)
+    });
+}
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
