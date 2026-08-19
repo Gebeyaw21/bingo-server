@@ -3,6 +3,8 @@ const http = require('http');
 const { Server } = require('socket.io');
 
 const app = express();
+app.use(express.json());
+
 const server = http.createServer(app);
 const io = new Server(server, {
     cors: { origin: "*", methods: ["GET", "POST"] }
@@ -11,7 +13,35 @@ const io = new Server(server, {
 let calledNumbers = [];
 let intervalId = null;
 let gameActive = false;
+let verifiedTransactions = new Set(); // የገቡ እና የተረጋገጡ Transaction IDs
 
+// የቴሌብር SMS መልእክት ሲላክ ለማረጋገጥ የሚረዳ Endpoint
+app.post('/api/verify-sms', (req, res) => {
+    const { message, userId } = req.body;
+
+    // ከቴሌብር መልእክት ውስጥ Transaction ID መፈለጊያ (Regex)
+    // ምሳሌ፡ Trans. ID: 1A2B3C4D5E ወይም Txn ID: 12345678
+    const txnMatch = message.match(/(?:Transaction ID|Txn ID|Trans\. ID|ID)[:\s]*([A-Za-z0-9]+)/i);
+
+    if (txnMatch && txnMatch[1]) {
+        const txnId = txnMatch[1];
+
+        // ቀደም ሲል ጥቅም ላይ ያልዋለ መሆኑን ማረጋገጥ
+        if (!verifiedTransactions.has(txnId)) {
+            verifiedTransactions.add(txnId);
+            
+            // ለተጫዋቹ ካርቴላውን እንዲከፍትለት Socket መልእክት መላክ
+            io.emit('paymentApproved', { userId, txnId });
+            return res.json({ success: true, message: 'ክፍያው በትክክል ተረጋግጧል!' });
+        } else {
+            return res.json({ success: false, message: 'ይህ Transaction ID ቀደም ሲል ጥቅም ላይ ውሏል!' });
+        }
+    } else {
+        return res.json({ success: false, message: 'ትክክለኛ የቴሌብር መልእክት አልተገኘም። እባክዎ በትክክል ኮፒ አድርገው ይላኩ።' });
+    }
+});
+
+// Socket.io Game Logic
 io.on('connection', (socket) => {
     socket.emit('init', { calledNumbers, gameActive });
 
@@ -39,11 +69,8 @@ io.on('connection', (socket) => {
         }
     });
 
-    // BINGO ማረጋገጫ logic
     socket.on('claimBingo', (userCartela) => {
         if (!gameActive) return;
-
-        // ተጫዋቹ የመረጣቸውን ቁጥሮች እና ሰርቨሩ የጠራቸውን ማወዳደር
         const isWinner = userCartela.every(num => num === 'FREE' || calledNumbers.includes(num));
 
         if (isWinner) {
@@ -54,8 +81,6 @@ io.on('connection', (socket) => {
             socket.emit('falseBingo', { message: 'ስህተት! ያልተጠራ ቁጥር መርጠዋል።' });
         }
     });
-
-    socket.on('disconnect', () => {});
 });
 
 const PORT = process.env.PORT || 3000;
