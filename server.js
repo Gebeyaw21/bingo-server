@@ -5,29 +5,27 @@ const { Server } = require('socket.io');
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-    cors: {
-        origin: "*",
-        methods: ["GET", "POST"]
-    }
+    cors: { origin: "*", methods: ["GET", "POST"] }
 });
 
 let calledNumbers = [];
 let intervalId = null;
+let gameActive = false;
 
 io.on('connection', (socket) => {
-    console.log('አዲስ ተጫዋች ተቀላቅሏል:', socket.id);
+    socket.emit('init', { calledNumbers, gameActive });
 
-    // ለአዲስ ተጫዋች እስካሁን የተጠሩ ቁጥሮችን ላክ
-    socket.emit('init', { calledNumbers });
-
-    // ጨዋታ ሲጀመር
     socket.on('startGame', () => {
-        if (!intervalId) {
+        if (!gameActive) {
             calledNumbers = [];
+            gameActive = true;
+            io.emit('gameStarted');
+
             intervalId = setInterval(() => {
                 if (calledNumbers.length >= 75) {
                     clearInterval(intervalId);
-                    intervalId = null;
+                    gameActive = false;
+                    io.emit('gameOver', { message: 'ሁሉም ቁጥሮች ተጠርተው አልቀዋል!' });
                     return;
                 }
                 let nextNum;
@@ -41,16 +39,24 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('disconnect', () => {
-        console.log('ተጫዋች ወጥቷል:', socket.id);
-    });
-});
+    // BINGO ማረጋገጫ logic
+    socket.on('claimBingo', (userCartela) => {
+        if (!gameActive) return;
 
-app.get('/', (req, res) => {
-    res.send('የቢንጎ ሰርቨር በትክክል እየሰራ ነው!');
+        // ተጫዋቹ የመረጣቸውን ቁጥሮች እና ሰርቨሩ የጠራቸውን ማወዳደር
+        const isWinner = userCartela.every(num => num === 'FREE' || calledNumbers.includes(num));
+
+        if (isWinner) {
+            clearInterval(intervalId);
+            gameActive = false;
+            io.emit('winnerFound', { winnerId: socket.id.substring(0, 5) });
+        } else {
+            socket.emit('falseBingo', { message: 'ስህተት! ያልተጠራ ቁጥር መርጠዋል።' });
+        }
+    });
+
+    socket.on('disconnect', () => {});
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-});
+server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
