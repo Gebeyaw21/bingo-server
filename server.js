@@ -13,11 +13,10 @@ let intervalId = null;
 let gameActive = false;
 let verifiedTxns = new Set();
 let connectedPlayers = 0;
-const ENTRY_FEE = 10; // የአንድ ካርቴላ ዋጋ (ብር)
+const ENTRY_FEE = 10;
 
-// የቴሌብር SMS ማረጋገጫ
 app.post('/api/verify-sms', (req, res) => {
-    const { message } = req.body;
+    const { message, phone } = req.body;
     const txnMatch = message.match(/(?:Transaction ID|Txn ID|Trans\. ID|ID)[:\s]*([A-Za-z0-9]+)/i);
 
     if (txnMatch && txnMatch[1]) {
@@ -60,19 +59,24 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('claimBingo', (selectedNums) => {
+    // ትክክለኛ የቢንጎ ማረጋገጫ (Server-side Validation)
+    socket.on('claimBingo', (data) => {
         if (!gameActive) return;
-        const isWinner = selectedNums.every(n => n === 'FREE' || calledNumbers.includes(n));
-        if (isWinner) {
+        const { selectedNumbers } = data;
+        
+        // አሸናፊ መሆኑን ማረጋገጥ (የተመረጡት ቁጥሮች ሁሉም የተጠሩ መሆናቸውን ማረጋገጥ)
+        let isWinner = selectedNumbers.every(n => n === 'FREE' || calledNumbers.includes(n));
+        
+        if (isWinner && selectedNumbers.length >= 5) {
             clearInterval(intervalId);
             gameActive = false;
-            let prizePool = connectedPlayers * ENTRY_FEE * 0.8; // 80% ለአሸናፊው
+            let prizePool = connectedPlayers * ENTRY_FEE * 0.8;
             io.emit('winnerFound', { 
                 winner: socket.id.substring(0, 5), 
                 prize: prizePool.toFixed(2) 
             });
         } else {
-            socket.emit('falseBingo', { message: 'ስህተት! ያልተጠራ ቁጥር መርጠዋል።' });
+            socket.emit('falseBingo', { message: 'ስህተት! ያልተጠራ ቁጥር መርጠዋል ወይም በቂ ቁጥሮች አልመረጡም።' });
         }
     });
 });
